@@ -87,7 +87,13 @@
 
                 video.addEventListener('loadeddata', readyListener);
 
-                compatibility.getUserMedia({video: true}, function(stream) {
+		var vconstraints = { video: true };
+		var supports = navigator.mediaDevices.getSupportedConstraints();
+		if( supports["facingMode"]) {
+		    vconstraints = {video: {facingMode:  "environment" } };
+		}
+		
+                compatibility.getUserMedia(vconstraints, function(stream) {
                     try {
                         video.src = compatibility.URL.createObjectURL(stream);
                     } catch (error) {
