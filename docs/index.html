@@ -1,0 +1,449 @@
+<!doctype html>
+
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+        <meta name="description" content="Canny">
+        <meta name="author" content="Pablo d'Angelo">
+        <title>Symmetry Tiller tool</title>
+
+        <link rel="stylesheet" href="css/bootstrap.css">
+        <link rel="stylesheet" href="css/jsfeat.css">
+
+    </head>
+    <body>
+            <video id="webcam" width="640" height="480" style="display:none;"></video>
+            <div style=" width:640px;height:480px;margin: 10px auto;">
+                <canvas id="canvas" width="640" height="480"></canvas>
+                <div id="no_rtc" class="alert alert-error" style="display:none;"></div>
+                <div id="log" class="alert alert-info"></div>
+		<div>
+		  <h3>Bow tiller tool by Pablo d&#39;Angelo</h3>
+		  Quick usage guide:
+		  <ul>
+		    <li> Setup camera so that the grip is located in
+		      the center (green line). It is important that
+		      the camera looks <b>perfectly perpendicular</b>
+		      to the bow, otherwise the display will be
+		      misleading.<br/>
+
+		        The green line can be shifted by either
+  		      setting the <b>y0</b> parameter of by clicking in
+  		      the middle of the screen.</li>
+		    <li> Click on a point on the left limb of the bow.</li>
+		    <li> Default tiller curve is circular, for bows with a stiff handle. The <b>grip</b> size can be adjusted in the parameter dialog. </li>
+		    <li> For elliptical tiller, the vertical radius <b>radius_y</b> can be adjusted in the options or by clicking on the right side of the image. </li>
+		    <li> If the contrast between limb and background
+		      is high, the point will turn green and track the
+		      limb while it is exercised. In poor contrast or
+		      confusing backgrounds, the tracking can be lost,
+		      and the point is shown in red color. To restart
+		      tracking, click on the limb again.</li>
+		    <li> For non circular or elliptical tillers, try
+		      enabling the <b>transparent</b> option. This will
+		      overlay a transparent, mirrored view, so that both
+		      limbs can be compared easily.
+		    <li> If the video is shown upside down, click on the <b>upside_down</b> option</li>
+		  </ul>
+		  Source code available at <a href="https://github.com/deangelo/symmetry">GitHub</a>. Uses HTML code and image processing <a href="https://inspirit.github.io/jsfeat">jsfeat</a>.
+		</div>
+            </div>
+        <script type="text/javascript" src="js/jquery.min.js"></script>
+        <script type="text/javascript" src="js/jsfeat-min.js"></script>
+        <script type="text/javascript" src="js/compatibility.js"></script>
+        <script type="text/javascript" src="js/profiler.js"></script>
+        <script type="text/javascript" src="js/dat.gui.min.js"></script>
+        <script type="text/javascript">
+
+        $(window).load(function() {
+            "use strict";
+
+            // lets do some fun
+            var video = document.getElementById('webcam');
+            var canvas = document.getElementById('canvas');
+            try {
+                var attempts = 0;
+                var readyListener = function(event) {
+                    findVideoSize();
+                };
+                var findVideoSize = function() {
+                    if(video.videoWidth > 0 && video.videoHeight > 0) {
+                        video.removeEventListener('loadeddata', readyListener);
+                        onDimensionsReady(video.videoWidth, video.videoHeight);
+                    } else {
+                        if(attempts < 10) {
+                            attempts++;
+                            setTimeout(findVideoSize, 200);
+                        } else {
+                            onDimensionsReady(640, 480);
+                        }
+                    }
+                };
+                var onDimensionsReady = function(width, height) {
+                    demo_app(width, height);
+                    compatibility.requestAnimationFrame(tick);
+                };
+
+                video.addEventListener('loadeddata', readyListener);
+
+                compatibility.getUserMedia({video: true}, function(stream) {
+                    try {
+                        video.src = compatibility.URL.createObjectURL(stream);
+                    } catch (error) {
+                        video.src = stream;
+                    }
+                    setTimeout(function() {
+                            video.play();
+                        }, 500);
+                }, function (error) {
+                    $('#canvas').hide();
+                    $('#log').hide();
+                    $('#no_rtc').html('<h4>WebRTC not available.</h4>');
+                    $('#no_rtc').show();
+                });
+            } catch (error) {
+                $('#canvas').hide();
+                $('#log').hide();
+                $('#no_rtc').html('<h4>Something goes wrong...</h4>');
+                $('#no_rtc').show();
+            }
+
+            var stat = new profiler();
+
+            var gui,options,ctx,canvasWidth,canvasHeight;
+            var img_u8;
+
+	    // tracking of the control point
+	    var curr_img_pyr, prev_img_pyr, point_count, point_status, prev_xy, curr_xy;
+
+            var demo_opt = function(){
+                this.grip = 50;
+                this.y0 = 200;
+		this.ctrl_point = [100,250];
+                this.upside_down = false;
+                this.transparent = false;
+		this.ellipse = false;
+                this.radius_y = 200;
+                this.track = false;
+
+		// fixed parameters
+		this.win_size = 20;
+                this.max_iterations = 30;
+                this.epsilon = 0.01;
+                this.min_eigen = 0.001;
+            }
+
+	    function update_options_gui() {
+		for (var i in gui.__controllers) {
+		    gui.__controllers[i].updateDisplay();
+		}
+	    }
+
+            function demo_app(videoWidth, videoHeight) {
+                canvasWidth  = canvas.width;
+                canvasHeight = canvas.height;
+                ctx = canvas.getContext('2d');
+
+                ctx.fillStyle = "rgb(0,255,0)";
+                ctx.strokeStyle = "rgb(0,255,0)";
+
+		curr_img_pyr = new jsfeat.pyramid_t(3);
+                prev_img_pyr = new jsfeat.pyramid_t(3);
+                curr_img_pyr.allocate(640, 480, jsfeat.U8_t|jsfeat.C1_t);
+                prev_img_pyr.allocate(640, 480, jsfeat.U8_t|jsfeat.C1_t);
+
+                point_count = 0;
+                point_status = new Uint8Array(100);
+                prev_xy = new Float32Array(100*2);
+                curr_xy = new Float32Array(100*2);
+		
+                img_u8 = new jsfeat.matrix_t(640, 480, jsfeat.U8C1_t);
+
+                options = new demo_opt();
+                gui = new dat.GUI();
+
+                gui.add(options, 'grip', 0, 50).step(1);
+                gui.add(options, 'y0', 0, 480).step(1);
+                gui.add(options, 'ellipse');
+                gui.add(options, 'radius_y', 0, 500).step(1);
+                gui.add(options, 'upside_down');
+                gui.add(options, 'transparent');
+                gui.add(options, 'track');
+
+		stat.add("grayscale");
+                stat.add("build image pyramid");
+                stat.add("optical flow lk");
+            }
+
+	    
+
+	    function draw_tiller(ctx) {
+
+	        // draw grid/line
+                var y0 = options.y0;
+		var x0 = 320;
+		ctx.beginPath();
+		ctx.lineWidth="2";
+		ctx.strokeStyle="green";		
+		ctx.moveTo(0, y0);
+		ctx.lineTo(2*x0, y0);
+		ctx.moveTo(x0, y0);
+		ctx.lineTo(x0, 480);
+		ctx.stroke();		
+
+		// draw control point
+		if (options.track) {
+		    ctx.fillStyle = "rgb(0,255,0)";
+                    ctx.strokeStyle = "rgb(0,255,0)";
+		} else {
+		    ctx.fillStyle = "rgb(255,0,0)";
+                    ctx.strokeStyle = "rgb(255,0,0)";
+		}		    
+		draw_circle(ctx, options.ctrl_point[0], options.ctrl_point[1]);
+		
+	        if (options.ellipse) {
+		   draw_ellipse(ctx, options.ctrl_point)
+		} else {
+		   draw_circ_tiller(ctx);
+   		}
+	    }
+
+            function draw_circ_tiller(ctx) {
+
+                var y0 = options.y0;
+		var x0 = 320;
+                var grip = options.grip;
+
+		var x = options.ctrl_point[0] - (x0 -grip);
+		if (options.ctrl_point[0] > x0) {
+		    x = options.ctrl_point[0] - (x0 + grip);
+		}
+		var y = options.ctrl_point[1] - y0;
+		var radius = (x*x + y*y) / (2*y);
+
+		
+	        ctx.beginPath();
+		ctx.strokeStyle="red";
+		if (radius > 0) {
+		    ctx.moveTo(x0-grip-radius, y0+radius);
+		    ctx.arc(x0-grip, y0+radius, radius, -Math.PI, -Math.PI/2 );
+		} else {
+		    ctx.moveTo(x0-grip+radius, y0+radius);
+		    ctx.arc(x0-grip, y0+radius, -radius, -Math.PI, -1.5*Math.PI, true );
+		}
+		
+//		ctx.moveTo(x0+grip+radius, y0+radius);
+		if (radius > 0) {
+		    ctx.arc(x0+grip, y0+radius, radius, -Math.PI/2, 0 )
+		} else {
+		    ctx.arc(x0+grip, y0+radius, -radius, -1.5*Math.PI, 0, true );
+		}
+		ctx.stroke();
+
+	        ctx.beginPath();
+		ctx.moveTo(x0-grip,y0-10);
+		ctx.lineTo(x0-grip,y0+10);
+		ctx.moveTo(x0+grip,y0-10);
+		ctx.lineTo(x0+grip,y0+10);
+		ctx.stroke();
+	    }
+
+	    function sq(x) {
+	        return x*x;
+	    }
+
+	    function get_elli(points) {
+	        // compute ellipse parameters from control point and radius 2
+
+		var x_0 = 640/2;
+		var x_1 = points[0]-x_0;
+		var y_1 = points[1];
+
+		// vertical radius
+		var b = options.radius_y;
+
+		if (y_1 > options.y0) {
+                    var y_0 = options.y0 + b;
+		} else {
+		    var y_0 = options.y0 - b;
+		}
+		// horizontal radius
+		var a = Math.sqrt(sq(x_1)/(1-(sq(y_1-y_0))/sq(b)));
+
+		var p = [a,b, x_0, y_0 ];
+		console.log("elli param:" + p);
+		return p;
+	    }
+
+	    function elli(t, param) {
+	        var p = [0,0];
+		p[0] = param[0] * Math.cos(t) + param[2];
+		p[1] = param[1] * Math.sin(t) + param[3];
+		return p;
+	    }
+
+            function draw_circle(ctx, x, y) {
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI*2, true);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+
+	    function draw_ellipse(ctx, points) {
+                var p;
+		var e_param = get_elli(points);
+
+                var po = elli(0, e_param);
+
+	    	ctx.beginPath();
+		ctx.lineWidth="2";
+		ctx.strokeStyle="red";
+		ctx.moveTo(po[0],po[1]);
+		for (var i=1; i < 2*31; i++)  {
+		    p = elli(i/10.0, e_param);
+		    ctx.lineTo(p[0],p[1]);
+		}
+		ctx.lineTo(po[0],po[1]);
+		ctx.stroke();
+	    }
+
+
+	    function track_ctrl_point(imageData) {
+		// image tracking of the control point (pyramidal LK tracker)
+		// swap flow data
+                var _pt_xy = prev_xy;
+                prev_xy = curr_xy;
+                curr_xy = _pt_xy;
+                var _pyr = prev_img_pyr;
+                prev_img_pyr = curr_img_pyr;
+                curr_img_pyr = _pyr;
+
+                stat.start("grayscale");
+                jsfeat.imgproc.grayscale(imageData.data, 640, 480, curr_img_pyr.data[0]);
+                stat.stop("grayscale");
+
+                stat.start("build image pyramid");
+                curr_img_pyr.build(curr_img_pyr.data[0], true);
+                stat.stop("build image pyramid");
+
+                stat.start("optical flow lk");
+                jsfeat.optical_flow_lk.track(prev_img_pyr, curr_img_pyr, prev_xy, curr_xy, point_count, options.win_size|0, options.max_iterations|0, point_status, options.epsilon, options.min_eigen);
+                stat.stop("optical flow lk");
+
+		if(point_status[0] == 1) {
+		    options.ctrl_point[0] = curr_xy[0];
+		    options.ctrl_point[1] = curr_xy[1];
+		} else {
+		    point_count = 0;
+		    options.track = false;
+		    // update options
+		    update_options_gui();
+		}
+	    }
+
+            function tick() {
+                compatibility.requestAnimationFrame(tick);
+                stat.new_frame();
+                if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    //ctx.drawImage(video, 0, 0, 640, 480);
+                    //var imageData = ctx.getImageData(0, 0, 640, 480);
+
+                    //ctx.putImageData(imageData, 0, 0);
+                    ctx.save();
+                    ctx.globalAlpha = 1.0;
+                    if (options.upside_down) {
+                        ctx.translate(0,480);
+                        ctx.scale(1, -1);
+                    }
+                    ctx.drawImage(video, 0, 0, 640, 480);
+		    if (options.track) {
+			var imageData = ctx.getImageData(0, 0, 640, 480);
+			if (point_count == 0) {
+			    curr_xy[0] = options.ctrl_point[0];
+			    curr_xy[1] = options.ctrl_point[1];
+			    point_count = 1;
+			}
+			track_ctrl_point(imageData);
+		    } else {
+			// reset tracking?
+		    }
+
+                    if (options.transparent) {
+                        ctx.globalAlpha = 0.5;
+                        ctx.translate(640,0);
+                        ctx.scale(-1, 1);
+                        ctx.drawImage(video, 0, 0, 640, 480);
+                    }
+                    ctx.restore();
+
+		    // draw tiller
+		    draw_tiller(ctx)
+								    
+                    $('#log').html(stat.log());
+                }
+            }
+
+	    function on_canvas_click(e) {
+                var coords = canvas.relMouseCoords(e);
+                if(coords.x > 0 & coords.y > 0 & coords.x < canvasWidth & coords.y < canvasHeight) {
+		    var p = 0;
+		    if (options.ellipse) {
+    		        if (coords.x < 280) {
+			    options.ctrl_point[0] = coords.x;
+                            options.ctrl_point[1] = coords.y;
+                            if (Math.abs(coords.y - options.y0) > options.radius_y) {
+                                options.radius_y = Math.abs(coords.y - options.y0);
+                            }
+			    curr_xy[0] = options.ctrl_point[0];
+			    curr_xy[1] = options.ctrl_point[1];
+			    point_count = 1;
+			    options.track = true;
+			} else if (coords.x < 320 + 40) {
+		            options.y0 = coords.y;
+			} else {
+		            options.radius_y = Math.abs(coords.y - options.y0);
+			}
+                        update_options_gui();
+		    } else {
+    		        if (coords.x < 280 || coords.x > 360) {
+			    options.ctrl_point[0] = coords.x;
+			    options.ctrl_point[1] = coords.y;
+			    curr_xy[0] = options.ctrl_point[0];
+			    curr_xy[1] = options.ctrl_point[1];
+			    point_count = 1;
+			    options.track = true;
+			    update_options_gui();
+			} else {
+		            options.y0 = coords.y;
+			}
+		    }
+                }
+            }
+            canvas.addEventListener('click', on_canvas_click, false);
+
+	    function relMouseCoords(event) {
+                var totalOffsetX=0,totalOffsetY=0,canvasX=0,canvasY=0;
+                var currentElement = this;
+
+                do {
+                    totalOffsetX += currentElement.offsetLeft - currentElement.scrollLeft;
+                    totalOffsetY += currentElement.offsetTop - currentElement.scrollTop;
+                } while(currentElement = currentElement.offsetParent)
+
+                canvasX = event.pageX - totalOffsetX;
+                canvasY = event.pageY - totalOffsetY;
+
+                return {x:canvasX, y:canvasY}
+            }
+            HTMLCanvasElement.prototype.relMouseCoords = relMouseCoords;
+
+            $(window).unload(function() {
+                video.pause();
+                video.src=null;
+            });
+        });
+        </script>
+    </body>
+</html>
