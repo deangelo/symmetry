@@ -90,7 +90,7 @@
 		var vconstraints = { video: true };
 		var supports = navigator.mediaDevices.getSupportedConstraints();
 		if( supports["facingMode"]) {
-		    vconstraints = {video: {facingMode:  "environment" } };
+		    vconstraints = {video: {facingMode:  {ideal:"environment"} } };
 		}
 		
                 compatibility.getUserMedia(vconstraints, function(stream) {
