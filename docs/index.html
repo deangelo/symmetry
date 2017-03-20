@@ -19,6 +19,14 @@
                 <div id="no_rtc" class="alert alert-error" style="display:none;"></div>
                 <div id="log" class="alert alert-info"></div>
 		<div>
+		  <h4>Brace</h4>
+		  <img id="image_brace" alt="Right click to save" width="640" height="480"/>
+		  <h4>Half draw</h4>
+		  <img id="image_half_draw" alt="Right click to save" width="640" height="480"/>
+		  <h4>Full draw</h4>
+		  <img id="image_full_draw" alt="Right click to save" width="640" height="480"/>
+		</div>
+		<div>
 		  <h3>Bow tiller tool by Pablo d&#39;Angelo</h3>
 		  Quick usage guide:
 		  <ul>
@@ -44,6 +52,9 @@
 		      enabling the <b>transparent</b> option. This will
 		      overlay a transparent, mirrored view, so that both
 		      limbs can be compared easily.
+		      </li>
+		    <li> Screenshots of brace, half draw and full draw are made automatically when the track point is active. The images are shown below the live view and can be saved with right click or long touch.
+		    </li>
 		    <li> If the video is shown upside down, click on the <b>upside_down</b> option</li>
 		  </ul>
 		  Source code available at <a href="https://github.com/deangelo/symmetry">GitHub</a>. Uses HTML code and image processing <a href="https://inspirit.github.io/jsfeat">jsfeat</a>.
@@ -122,6 +133,10 @@
 
 	    // tracking of the control point
 	    var curr_img_pyr, prev_img_pyr, point_count, point_status, prev_xy, curr_xy;
+
+	    // state for image grabbing
+	    var screenshot_ymin = -1;
+	    var screenshot_ymax = -1;
 
             var demo_opt = function(){
                 this.grip = 50;
@@ -342,10 +357,7 @@
 		    options.ctrl_point[0] = curr_xy[0];
 		    options.ctrl_point[1] = curr_xy[1];
 		} else {
-		    point_count = 0;
-		    options.track = false;
-		    // update options
-		    update_options_gui();
+		    stop_tracking();
 		}
 	    }
 
@@ -385,12 +397,62 @@
                     ctx.restore();
 
 		    // draw tiller
-		    draw_tiller(ctx)
+		    draw_tiller(ctx);
+
+		    // screenshot
+		    if (options.track) {
+			screenshot(options.ctrl_point[1]);
+		    }
 								    
                     $('#log').html(stat.log());
                 }
             }
 
+	    function start_tracking() {
+		// start tracking
+		point_count = 1;
+		options.track = true;
+		// update options
+		update_options_gui();
+
+		// reset screenshot status
+	        screenshot_ymin = screenshot_ymax = -1;
+				  
+	    }
+
+	    function stop_tracking() {
+		    
+		point_count = 0;
+		options.track = false;
+		// update options
+		update_options_gui();
+	    }
+
+	    function canvas2img(canvas,image)
+	    {		
+		var imageURL = canvas.toDataURL();
+		document.getElementById(image).src = imageURL;
+	    }
+	    
+	    function screenshot(y) {
+		// check if we need to create a new screenshot
+		var halfdraw = (screenshot_ymax + screenshot_ymin) / 2.0;
+		if (screenshot_ymin == -1) {
+		    // initial tracking
+		    screenshot_ymin = screenshot_ymax = y;
+		    canvas2img(canvas,"image_brace");
+		} else if (y < screenshot_ymin) {
+		    screenshot_ymin = y;
+		    canvas2img(canvas,"image_brace");
+		} else if ( y > screenshot_ymax ) {
+		    screenshot_ymax = y;
+		    canvas2img(canvas,"image_full_draw");
+		} else if ( y < halfdraw + 10 && y > halfdraw - 10 ) {
+		    // determine half draw somehow?
+		    canvas2img(canvas,"image_half_draw");		    
+		}
+	    }
+	    
 	    function on_canvas_click(e) {
                 var coords = canvas.relMouseCoords(e);
                 if(coords.x > 0 & coords.y > 0 & coords.x < canvasWidth & coords.y < canvasHeight) {
@@ -404,8 +466,7 @@
                             }
 			    curr_xy[0] = options.ctrl_point[0];
 			    curr_xy[1] = options.ctrl_point[1];
-			    point_count = 1;
-			    options.track = true;
+			    start_tracking();
 			} else if (coords.x < 320 + 40) {
 		            options.y0 = coords.y;
 			} else {
@@ -418,9 +479,7 @@
 			    options.ctrl_point[1] = coords.y;
 			    curr_xy[0] = options.ctrl_point[0];
 			    curr_xy[1] = options.ctrl_point[1];
-			    point_count = 1;
-			    options.track = true;
-			    update_options_gui();
+			    start_tracking();
 			} else {
 		            options.y0 = coords.y;
 			}
