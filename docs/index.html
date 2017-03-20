@@ -192,9 +192,13 @@
                 gui.add(options, 'transparent');
                 gui.add(options, 'track');
 
+                stat.add("draw");
+		stat.add("track point");
 		stat.add("grayscale");
                 stat.add("build image pyramid");
                 stat.add("optical flow lk");
+                stat.add("draw tiller");
+		stat.add("screenshot");
             }
 
 	    
@@ -369,6 +373,7 @@
                     //var imageData = ctx.getImageData(0, 0, 640, 480);
 
                     //ctx.putImageData(imageData, 0, 0);
+		    stat.start("draw");
                     ctx.save();
                     ctx.globalAlpha = 1.0;
                     if (options.upside_down) {
@@ -376,7 +381,9 @@
                         ctx.scale(1, -1);
                     }
                     ctx.drawImage(video, 0, 0, 640, 480);
+		    stat.stop("draw")
 		    if (options.track) {
+			stat.start("track point")
 			var imageData = ctx.getImageData(0, 0, 640, 480);
 			if (point_count == 0) {
 			    curr_xy[0] = options.ctrl_point[0];
@@ -384,10 +391,12 @@
 			    point_count = 1;
 			}
 			track_ctrl_point(imageData);
+			stat.stop("track point")
 		    } else {
 			// reset tracking?
 		    }
 
+		    stat.start("draw tiller");
                     if (options.transparent) {
                         ctx.globalAlpha = 0.5;
                         ctx.translate(640,0);
@@ -398,10 +407,13 @@
 
 		    // draw tiller
 		    draw_tiller(ctx);
+		    stat.stop("draw tiller");
 
 		    // screenshot
 		    if (options.track) {
+			stat.start("screenshot");
 			screenshot(options.ctrl_point[1]);
+			stat.stop("screenshot");
 		    }
 								    
                     $('#log').html(stat.log());
