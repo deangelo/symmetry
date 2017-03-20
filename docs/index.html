@@ -136,6 +136,7 @@
 
 	    // state for image grabbing
 	    var screenshot_ymin = -1;
+	    var screenshot_ylast = -1;
 	    var screenshot_ymax = -1;
 
             var demo_opt = function(){
@@ -428,7 +429,7 @@
 		update_options_gui();
 
 		// reset screenshot status
-	        screenshot_ymin = screenshot_ymax = -1;
+	        screenshot_ymin = screenshot_ylast = screenshot_ymax = -1;
 				  
 	    }
 
@@ -459,10 +460,11 @@
 		} else if ( y > screenshot_ymax ) {
 		    screenshot_ymax = y;
 		    canvas2img(canvas,"image_full_draw");
-		} else if ( y < halfdraw + 10 && y > halfdraw - 10 ) {
+		} else if ( y <= halfdraw &&  screenshot_ylast > halfdraw ) {
 		    // determine half draw somehow?
 		    canvas2img(canvas,"image_half_draw");		    
 		}
+		screenshot_ylast = y
 	    }
 	    
 	    function on_canvas_click(e) {
