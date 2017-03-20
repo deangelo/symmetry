@@ -40,7 +40,7 @@
   		      setting the <b>y0</b> parameter of by clicking in
   		      the middle of the screen.</li>
 		    <li> Click on a point on the left limb of the bow.</li>
-		    <li> Default tiller curve is circular. The size of a stiff grip can be adjusted in the parameter dialog. </li>
+    <li> Default tiller curve is circular. The size of a stiff grip can be adjusted in the parameter dialog, or by clicking the upper border of the image.</li>
 		    <li> For elliptical tiller, the vertical radius <b>radius_y</b> can be adjusted in the options or by clicking on the right side of the image. </li>
 		    <li> If the contrast between limb and background
 		      is high, the point will turn green and track the
@@ -152,7 +152,7 @@
 		this.win_size = 20;
                 this.max_iterations = 30;
                 this.epsilon = 0.01;
-                this.min_eigen = 0.001;
+                this.min_eigen = 0.0005;
             }
 
 	    function update_options_gui() {
@@ -474,7 +474,10 @@
 			}
                         update_options_gui();
 		    } else {
-    		        if (coords.x < 280 || coords.x > 360) {
+			if (coords.y < 50) {
+			    options.grip = coords.x / 10;
+                            update_options_gui();
+    		        } else if (coords.x < 280 || coords.x > 360) {
 			    options.ctrl_point[0] = coords.x;
 			    options.ctrl_point[1] = coords.y;
 			    curr_xy[0] = options.ctrl_point[0];
