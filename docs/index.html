@@ -448,21 +448,35 @@
 	    }
 	    
 	    function screenshot(y) {
+		// This function captures screenshots
+		//
+		// we capture the image after brace or full draw,
+		// since the canvas.toDataURL function is very slow,
+		// as it has to png encode the image
+
 		// check if we need to create a new screenshot
 		var halfdraw = (screenshot_ymax + screenshot_ymin) / 2.0;
 		if (screenshot_ymin == -1) {
 		    // initial tracking
 		    screenshot_ymin = screenshot_ymax = y;
 		    canvas2img(canvas,"image_brace");
-		} else if (y < screenshot_ymin) {
-		    screenshot_ymin = y;
-		    canvas2img(canvas,"image_brace");
-		} else if ( y > screenshot_ymax ) {
-		    screenshot_ymax = y;
-		    canvas2img(canvas,"image_full_draw");
-		} else if ( y <= halfdraw &&  screenshot_ylast > halfdraw ) {
-		    // determine half draw somehow?
+		} else if ( (y <= halfdraw && screenshot_ylast > halfdraw) ||
+			    (y > halfdraw && screenshot_ylast <= halfdraw) )
+		{
+		    // half draw crossed
 		    canvas2img(canvas,"image_half_draw");		    
+		} else if (screenshot_ylast > y) {
+		    // moving upwards, check if last image was full draw
+		    if ( y > screenshot_ymax ) {
+			screenshot_ymax = y;
+			canvas2img(canvas,"image_full_draw");
+		    }
+		} else if (screenshot_ylast < y) {
+		    // moving downwards, check if last image was 
+		    if ( y < screenshot_ymin ) {
+			screenshot_ymin = y;
+			canvas2img(canvas,"image_brace");
+		    }
 		}
 		screenshot_ylast = y
 	    }
